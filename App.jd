@@ -1,1 +1,415 @@
+import React, { useState, useEffect } from 'react';
+import { StyleSheet, Text, View, TouchableOpacity, ScrollView, ActivityIndicator, Alert, TextInput, Modal } from 'react-native';
+import * as DocumentPicker from 'expo-document-picker';
+
+//i have pasted my backend server url
+const API_URL = "https://9665ef94-dbde-4831-9a80-170392646764-00-bespytwb2ync.pike.replit.dev"; 
+
+export default function App() {
+  const [loading, setLoading] = useState(false);
+  const [quiz, setQuiz] = useState(null);
+  
+  
+  const [userSelections, setUserSelections] = useState({});
+  // Stores which questions are "Done" (Submitted): { 0: true, 1: false }
+  const [submittedQuestions, setSubmittedQuestions] = useState({});
+  
+  const [score, setScore] = useState(0);
+  const [inputTime, setInputTime] = useState("5");
+  const [timeLeft, setTimeLeft] = useState(0);
+  const [isTimerRunning, setIsTimerRunning] = useState(false);
+  const [showScoreModal, setShowScoreModal] = useState(false);
+  
+  // Flashcards State
+  const [savedCards, setSavedCards] = useState([]);
+  const [viewingFlashcards, setViewingFlashcards] = useState(false);
+
+  const [topic, setTopic] = useState("");
+  const [numQuestions, setNumQuestions] = useState("5");
+  const [mode, setMode] = useState("file"); 
+
+  // --- TIMER ---
+  useEffect(() => {
+    let timerId;
+    if (isTimerRunning && timeLeft > 0) {
+      timerId = setInterval(() => {
+        setTimeLeft((prev) => {
+            if (prev <= 1) {
+                clearInterval(timerId);
+                finishQuiz(); 
+                return 0;
+            }
+            return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => clearInterval(timerId);
+  }, [isTimerRunning, timeLeft]);
+
+  const formatTime = (s) => {
+    const m = Math.floor(s / 60);
+    const sec = s % 60;
+    return `${m}:${sec < 10 ? '0' : ''}${sec}`;
+  };
+
+  // --- ACTIONS ---
+  const toggleSaveCard = (questionObj) => {
+    const exists = savedCards.find(c => c.question === questionObj.question);
+    if (exists) {
+        setSavedCards(savedCards.filter(c => c.question !== questionObj.question));
+    } else {
+        setSavedCards([...savedCards, questionObj]);
+        Alert.alert("Saved", "Added to Flashcards!");
+    }
+  };
+
+  const pickPDF = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({ type: 'application/pdf' });
+      if (!result.canceled) uploadData(result.assets[0], 'pdf');
+    } catch (err) { Alert.alert("Error", "Pick failed"); }
+  };
+
+  const startTopicQuiz = () => {
+    if (!topic.trim()) { Alert.alert("Required", "Enter topic."); return; }
+    uploadData(null, 'topic');
+  };
+
+  const uploadData = async (file, type) => {
+    setLoading(true);
+    setQuiz(null);
+    setUserSelections({});
+    setSubmittedQuestions({});
+    setScore(0);
+    setShowScoreModal(false);
+    setViewingFlashcards(false);
+
+    let formData = new FormData();
+    formData.append('count', numQuestions);
+    if (type === 'topic') formData.append('topic', topic);
+    else formData.append('pdf', { uri: file.uri, name: 'upload.pdf', type: 'application/pdf' });
+
+    try {
+      const response = await fetch(`${API_URL}/generate-quiz`, { method: 'POST', body: formData });
+      const data = await response.json();
+      if (data.error) Alert.alert("Server Error", data.error);
+      else {
+        setQuiz(data);
+        const minutes = parseInt(inputTime) || 5;
+        setTimeLeft(minutes * 60);
+        setIsTimerRunning(true);
+      }
+    } catch (error) { Alert.alert("Error", "Check server."); } 
+    finally { setLoading(false); }
+  };
+
+  // --- LOGIC FIX: Handle Option Click ---
+  const handleOptionClick = (qIndex, oIndex, questionType) => {
+    if (submittedQuestions[qIndex] || !isTimerRunning) return;
+
+    // Determine if it's multi-select
+    // The server sends "type": "multiple" OR correct_indices has length > 1
+    const isMultiple = questionType === 'multiple' || (quiz[qIndex].correct_indices && quiz[qIndex].correct_indices.length > 1);
+
+    if (isMultiple) {
+        // Toggle selection for MSQ (Blue color logic)
+        setUserSelections(prev => {
+            const current = prev[qIndex] || [];
+            if (current.includes(oIndex)) {
+                return { ...prev, [qIndex]: current.filter(i => i !== oIndex) };
+            } else {
+                return { ...prev, [qIndex]: [...current, oIndex] };
+            }
+        });
+    } else {
+        // Single choice: Select and Submit Immediately
+        // We bypass the "Blue" stage and go straight to grading
+        const newSelections = { ...userSelections, [qIndex]: [oIndex] };
+        setUserSelections(newSelections);
+        submitQuestion(qIndex, [oIndex]);
+    }
+  };
+
+  // --- LOGIC FIX: Submit Question & Check Answer ---
+  const submitQuestion = (qIndex, forcedSelection = null) => {
+    if (submittedQuestions[qIndex]) return;
+
+    // Get what the user picked (from state OR immediate click)
+    const currentSelections = forcedSelection || userSelections[qIndex] || [];
+    const correctIndices = quiz[qIndex].correct_indices || [];
+
+    // Compare Arrays (Sort them first to match [0,1] with [1,0])
+    const sortedUser = [...currentSelections].sort();
+    const sortedCorrect = [...correctIndices].sort();
+    
+    // Exact match required for point? Or partial credit? 
+    // Standard quiz rules: Exact match = 1 point.
+    const isCorrect = JSON.stringify(sortedUser) === JSON.stringify(sortedCorrect);
+
+    if (isCorrect) setScore(s => s + 1);
+    
+    // Mark as Done so colors reveal (Red/Green)
+    setSubmittedQuestions(prev => ({ ...prev, [qIndex]: true }));
+  };
+
+  const finishQuiz = () => {
+    setIsTimerRunning(false);
+    setShowScoreModal(true);
+  };
+
+  const resetApp = () => {
+    setQuiz(null);
+    setShowScoreModal(false);
+    setTopic("");
+    setUserSelections({});
+    setSubmittedQuestions({});
+    setScore(0);
+    setViewingFlashcards(false);
+  };
+
+    // --- RENDER FLASHCARDS SCREEN ---
+  if (viewingFlashcards) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.headerRow}>
+            <TouchableOpacity onPress={() => setViewingFlashcards(false)} style={styles.backBtn}>
+                <Text style={styles.backBtnText}>❮ Home</Text>
+            </TouchableOpacity>
+            <Text style={styles.headerTitle}>Flashcards ({savedCards.length})</Text>
+            <View style={{width: 50}} />
+        </View>
+        <ScrollView style={styles.scroll}>
+            {savedCards.length === 0 ? (
+                <Text style={{textAlign:'center', marginTop:50, color:'#888'}}>No cards saved yet. Use the ❤️ button in a quiz!</Text>
+            ) : (
+                savedCards.map((card, index) => (
+                    <View key={index} style={styles.card}>
+                        <Text style={styles.question}>Q: {card.question}</Text>
+                        <View style={styles.explainBox}>
+                            <Text style={styles.explainTitle}>Answer:</Text>
+                            <Text style={styles.explainText}>{card.answer}</Text>
+                            {card.explanation && (
+                                <Text style={[styles.explainText, {marginTop:5}]}>ℹ️ {card.explanation}</Text>
+                            )}
+                        </View>
+                        <TouchableOpacity 
+                            style={[styles.btn, {backgroundColor: '#ef4444', marginTop: 10}]}
+                            onPress={() => toggleSaveCard(card)}
+                        >
+                            <Text style={styles.btnText}>🗑️ Remove</Text>
+                        </TouchableOpacity>
+                    </View>
+                ))
+            )}
+        </ScrollView>
+      </View>
+    );
+  }
+
+
+  // --- RENDER HOME FORM ---
+  const renderForm = () => (
+    <View style={styles.formBox}>
+      <View style={styles.row}>
+          <View style={styles.halfInput}>
+            <Text style={styles.label}>Questions:</Text>
+            <TextInput style={styles.input} value={numQuestions} onChangeText={setNumQuestions} keyboardType="numeric" placeholder="5"/>
+          </View>
+          <View style={styles.halfInput}>
+            <Text style={styles.label}>Time (Mins):</Text>
+            <TextInput style={styles.input} value={inputTime} onChangeText={setInputTime} keyboardType="numeric" placeholder="5"/>
+          </View>
+      </View>
+      <View style={styles.tabRow}>
+        <TouchableOpacity style={[styles.tab, mode === 'file' && styles.activeTab]} onPress={() => setMode('file')}><Text style={[styles.tabText, mode === 'file' && styles.activeTabText]}>PDF</Text></TouchableOpacity>
+        <TouchableOpacity style={[styles.tab, mode === 'topic' && styles.activeTab]} onPress={() => setMode('topic')}><Text style={[styles.tabText, mode === 'topic' && styles.activeTabText]}>Topic</Text></TouchableOpacity>
+      </View>
+      {mode === 'file' ? (
+        <TouchableOpacity style={[styles.btn, styles.pdfBtn]} onPress={pickPDF}><Text style={styles.btnText}>📄 Select PDF File</Text></TouchableOpacity>
+      ) : (
+        <View>
+          <TextInput style={styles.input} value={topic} onChangeText={setTopic} placeholder="e.g. Physics" />
+          <TouchableOpacity style={[styles.btn, styles.goBtn]} onPress={startTopicQuiz}><Text style={styles.btnText}>🚀 Start Revison 🚀</Text></TouchableOpacity>
+        </View>
+      )}
+      <TouchableOpacity style={[styles.btn, {backgroundColor: '#8b5cf6', marginTop: 20}]} onPress={() => setViewingFlashcards(true)}>
+        <Text style={styles.btnText}>🗂️ View Flashcards</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.headerRow}>
+        {quiz ? (<TouchableOpacity onPress={resetApp} style={styles.backBtn}><Text style={styles.backBtnText}>Exit</Text></TouchableOpacity>) : <View style={{width:40}}/>}
+        <Text style={styles.headerTitle}>💯REVISIONARY👨🏻‍🎓</Text>
+        {quiz ? (<Text style={[styles.statText, {color: timeLeft < 30 ? 'red' : '#374151'}]}>⏱️ {formatTime(timeLeft)}</Text>) : <View style={{width:40}}/>}
+      </View>
+      
+      {!quiz && !loading && renderForm()}
+      {loading && <ActivityIndicator size="large" color="#4f46e5" style={{marginTop: 50}} />}
+
+      <ScrollView style={styles.scroll}>
+        {quiz && quiz.map((q, qIndex) => {
+            const selections = userSelections[qIndex] || [];
+            const isSubmitted = submittedQuestions[qIndex];
+            const correctIndices = q.correct_indices || [];
+            
+            // Determine if this specific question is MSQ
+            const isMultiple = q.type === 'multiple' || correctIndices.length > 1;
+
+            return (
+              <View key={qIndex} style={styles.card}>
+                <View style={{flexDirection:'row', justifyContent:'space-between'}}>
+                    <Text style={styles.question}>Q{qIndex + 1}: {q.question}</Text>
+                    <TouchableOpacity onPress={() => toggleSaveCard(q)} style={{padding:5}}>
+                        <Text style={{fontSize: 22}}>{savedCards.find(c => c.question === q.question) ? "❤️" : "🤍"}</Text>
+                    </TouchableOpacity>
+                </View>
+                
+                {isMultiple && <View style={styles.msqBadge}><Text style={styles.msqText}>Select Multiple</Text></View>}
+
+                {q.options.map((opt, oIndex) => {
+                  const isSelected = selections.includes(oIndex);
+                  const isCorrectOption = correctIndices.includes(oIndex);
+                  
+                  let btnStyle = styles.optionBtn;
+                  let textStyle = styles.optionText;
+
+                  if (isSubmitted) {
+                    // REVEAL MODE (Green/Red)
+                    // Logic: 
+                    // 1. If this option IS a correct answer -> GREEN (Always show correct answers)
+                    // 2. If this option IS NOT correct, but user selected it -> RED (Show mistake)
+                    if (isCorrectOption) { 
+                        btnStyle = [styles.optionBtn, styles.correctBtn]; 
+                        textStyle = styles.whiteText; 
+                    } else if (isSelected) { 
+                        btnStyle = [styles.optionBtn, styles.wrongBtn]; 
+                        textStyle = styles.whiteText; 
+                    }
+                  } else {
+                    // SELECTION MODE (Blue)
+                    if (isSelected) {
+                        btnStyle = [styles.optionBtn, styles.selectedBtn]; 
+                        textStyle = styles.whiteText;
+                    }
+                  }
+
+                  return (
+                    <TouchableOpacity 
+                      key={oIndex} style={btnStyle} 
+                      onPress={() => handleOptionClick(qIndex, oIndex, isMultiple ? 'multiple' : 'single')}
+                      disabled={isSubmitted || !isTimerRunning}
+                    >
+                      <Text style={textStyle}>
+                        <Text style={{fontWeight: 'bold'}}>{String.fromCharCode(65 + oIndex)}) </Text>
+                        {opt}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+                
+                {/* SUBMIT BUTTON: Only show for Multiple Choice questions that aren't submitted yet */}
+                {isMultiple && !isSubmitted && (
+                    <TouchableOpacity style={styles.submitQBtn} onPress={() => submitQuestion(qIndex)}>
+                        <Text style={styles.submitQText}>Submit Answer</Text>
+                    </TouchableOpacity>
+                )}
+
+                {/* EXPLANATION */}
+                {isSubmitted && (
+                    <View style={styles.explainBox}>
+                        <Text style={styles.explainTitle}>💡 Explanation:</Text>
+                        <Text style={styles.explainText}>{q.explanation}</Text>
+                    </View>
+                )}
+              </View>
+            );
+        })}
+        
+        {quiz && isTimerRunning && (
+            <TouchableOpacity style={styles.finishBtn} onPress={finishQuiz}>
+                <Text style={styles.finishText}>🏁 Finish Quiz</Text>
+            </TouchableOpacity>
+        )}
+      </ScrollView>
+
+      {/* SCORE MODAL */}
+      <Modal visible={showScoreModal} animationType="slide" transparent={true}>
+        <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+                <Text style={styles.modalTitle}>Quiz Finished!</Text>
+                <Text style={styles.modalScore}>{score} / {quiz ? quiz.length : 0}</Text>
+                <View style={styles.modalBtnRow}>
+                    <TouchableOpacity style={[styles.modalBtn, {backgroundColor:'#4f46e5'}]} onPress={resetApp}>
+                        <Text style={styles.btnText}>Play Again</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.modalBtn, {backgroundColor:'#6b7280', marginTop:10}]} onPress={() => setShowScoreModal(false)}>
+                        <Text style={styles.btnText}>Review Answers</Text>
+                    </TouchableOpacity>
+                </View>
+            </View>
+        </View>
+      </Modal>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#f8fafc', paddingTop: 40, paddingHorizontal: 20 },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
+  headerTitle: { fontSize: 20, fontWeight: 'bold', color: '#1e293b' },
+  statText: { fontSize: 16, fontWeight: 'bold', color: '#374151' },
+  backBtn: { padding: 8, backgroundColor: '#e2e8f0', borderRadius: 8 },
+  backBtnText: { fontSize: 14, fontWeight: 'bold', color: '#475569' },
+  formBox: { backgroundColor: 'white', padding: 20, borderRadius: 16, elevation: 4 },
+  row: { flexDirection: 'row', justifyContent: 'space-between' },
+  halfInput: { width: '48%' },
+  label: { fontSize: 14, fontWeight: 'bold', color: '#64748b', marginBottom: 5 },
+  input: { borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, padding: 12, fontSize: 16, marginBottom: 15 },
+  tabRow: { flexDirection: 'row', marginBottom: 15, backgroundColor: '#f1f5f9', borderRadius: 12, padding: 4 },
+  tab: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 8 },
+  activeTab: { backgroundColor: 'white', elevation: 1 },
+  tabText: { fontWeight: '600', color: '#64748b' },
+  activeTabText: { color: '#4f46e5', fontWeight: 'bold' },
+  btn: { padding: 15, borderRadius: 12, alignItems: 'center', marginTop: 10 },
+  pdfBtn: { backgroundColor: '#4f46e5' },
+  goBtn: { backgroundColor: '#10b981', width: '100%' },
+  btnText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
+  scroll: { paddingBottom: 50 },
+  card: { backgroundColor: 'white', padding: 20, borderRadius: 16, marginBottom: 20, elevation: 2 },
+  question: { fontSize: 18, fontWeight: '700', color: '#1e293b', marginBottom: 5, width: '70%' },
+  
+  msqBadge: { backgroundColor: '#e0f2fe', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, alignSelf: 'flex-start' },
+  msqText: { color: '#0284c7', fontSize: 10, fontWeight: 'bold' },
+
+  optionBtn: { backgroundColor: '#f8fafc', padding: 15, borderRadius: 12, marginBottom: 10, borderWidth: 2, borderColor: '#e2e8f0', width: '100%', minHeight: 60, justifyContent: 'center' },
+  
+  selectedBtn: { backgroundColor: '#3b82f6', borderColor: '#2563eb' }, // BLUE
+  correctBtn: { backgroundColor: '#22c55e', borderColor: '#16a34a' },   // GREEN
+  wrongBtn: { backgroundColor: '#ef4444', borderColor: '#dc2626' },     // RED
+  
+  optionText: { fontSize: 16, color: '#334155' },
+  whiteText: { fontSize: 16, color: 'white', fontWeight: 'bold' },
+  
+  submitQBtn: { backgroundColor: '#6366f1', padding: 12, borderRadius: 8, alignItems: 'center', marginTop: 5 },
+  submitQText: { color: 'white', fontWeight: 'bold' },
+
+  explainBox: { marginTop: 10, padding: 15, backgroundColor: '#eef2ff', borderRadius: 10 },
+  explainTitle: { color: '#4338ca', fontWeight: 'bold', marginBottom: 5 },
+  explainText: { color: '#3730a3', fontSize: 14 },
+  finishBtn: { backgroundColor: '#f59e0b', padding: 15, borderRadius: 12, alignItems: 'center', marginBottom: 50 },
+  finishText: { color: 'white', fontSize: 18, fontWeight: 'bold' },
+
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' },
+  modalContent: { backgroundColor: 'white', width: '85%', padding: 30, borderRadius: 25, alignItems: 'center', elevation: 10 },
+  modalTitle: { fontSize: 28, fontWeight: 'bold', marginBottom: 10, color: '#1e293b' },
+  modalScore: { fontSize: 40, color: '#4f46e5', fontWeight: '800', marginBottom: 20 },
+  modalMessage: { fontSize: 18, color: '#64748b', textAlign: 'center', marginBottom: 30 },
+  modalBtnRow: { flexDirection: 'column', gap: 10, width: '100%' },
+  modalBtn: { paddingVertical: 12, borderRadius: 10, alignItems: 'center' },
+  });
+  
+
 
