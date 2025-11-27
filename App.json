@@ -4,26 +4,16 @@
     "slug": "ai-quiz-master",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "https://cdn-icons-png.flaticon.com/512/3407/3407024.png",
+    "icon": "./assets/icon.png",  <-- CHANGED THIS (Must be a local path)
     "userInterfaceStyle": "light",
     "splash": {
-      "image": "https://cdn-icons-png.flaticon.com/512/3407/3407024.png",
+      "image": "./assets/icon.png", <-- CHANGED THIS (Use local icon for splash too)
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
-    "updates": {
-      "fallbackToCacheTimeout": 0
-    },
-    "assetBundlePatterns": [
-      "**/*"
-    ],
-    "ios": {
-      "supportsTablet": true,
-      "bundleIdentifier": "com.quizmaster.app"
-    },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "https://cdn-icons-png.flaticon.com/512/3407/3407024.png",
+        "foregroundImage": "./assets/icon.png", <-- CHANGED THIS
         "backgroundColor": "#ffffff"
       },
       "package": "com.quizmaster.app",
@@ -32,6 +22,10 @@
         "WRITE_EXTERNAL_STORAGE",
         "INTERNET"
       ]
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.quizmaster.app"
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -48,4 +42,4 @@
       ]
     ]
   }
-}
+    }
