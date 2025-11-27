@@ -1,36 +1,51 @@
 {
   "expo": {
-    "name": "REVISIONARY",
-    "slug": "AI-quiz-master",
+    "name": "AI Quiz Master",
+    "slug": "ai-quiz-master",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "https://cdn-icons-png.flaticon.com/512/3407/3407024.png",
     "userInterfaceStyle": "light",
     "splash": {
-      "image": "./assets/splash.png",
+      "image": "https://cdn-icons-png.flaticon.com/512/3407/3407024.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
+    },
+    "updates": {
+      "fallbackToCacheTimeout": 0
     },
     "assetBundlePatterns": [
       "**/*"
     ],
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.quizmaster.app"
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "https://cdn-icons-png.flaticon.com/512/3407/3407024.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "com.yourname.quizmaster"
+      "package": "com.quizmaster.app",
+      "permissions": [
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "INTERNET"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "extra": {
-      "eas": {
-        "projectId": "your-project-id"
-      }
-    }
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "The app accesses your photos to let you upload study material."
+        }
+      ],
+      [
+        "expo-document-picker"
+      ]
+    ]
   }
 }
